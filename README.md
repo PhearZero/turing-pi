@@ -33,8 +33,8 @@ sudo apt-get install build-essential subversion git-core libncurses5-dev zlib1g-
 ## ⚙️ Getting Started
 ```bash
 # Clone the project and change directory
-git clone git@github.com:PhearZero/turing-pi.git
-cd turing-pi
+git clone git@github.com:PhearZero/zero-pi-2.git
+cd zero-pi-2
 
 # Configure buildroot for your system
 ./zpi.sh init
