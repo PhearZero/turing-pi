@@ -1,5 +1,5 @@
 #!/bin/sh
-CONTAINER_VER="$1"
+CONTAINER_VER="v1.0.0"
 PRODUCT_NAME="turingpi"
 FILES="sw-description rootfs.ubifs env0.fex env1.fex"
 for i in $FILES;do

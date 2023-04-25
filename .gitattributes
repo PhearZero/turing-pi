@@ -1,0 +1,14 @@
+* text eol=lf
+*.fex binary
+*.png binary
+*.jpg binary
+*.bin binary
+*.so binary
+*.eot binary
+*.ttf binary
+*.woff binary
+*.bmp binary
+*.exe binary
+*.pdf binary
+*.xcf binary
+curl binary

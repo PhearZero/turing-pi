@@ -1,0 +1,40 @@
+name: zpi
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    tags:
+      - "v*.*.*"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Chmod
+        run: chmod +x ./zpi.sh ./scripts/*.sh
+      - name: Check ZPI
+        run: shellcheck ./zpi.sh
+      - name: Check Scripts
+        run: shellcheck ./scripts/*.sh
+  release:
+    needs: test
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Chmod
+        run: chmod +x ./zpi.sh ./scripts/*.sh
+      - name: Init
+        run: ./zpi.sh init
+      - name: Build
+        run: ./zpi.sh build
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true
+          files: |
+            ./build/**/*.img
+            ./build/**/*.swu
