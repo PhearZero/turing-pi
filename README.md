@@ -9,7 +9,6 @@ __________                 __________.__  ________
 Custom Firmware for the Turing Pi 2, there be dragons
 ```
 
-[![semantic-release: angular](https://img.shields.io/badge/semantic--release-ZeroPi2-e10079?logo=semantic-release)](https://github.com/semantic-release/semantic-release)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 Please see [Dhanos Community Edition](https://github.com/daniel-kukiela/turing-pi-2-community-edition-firmware) or the
