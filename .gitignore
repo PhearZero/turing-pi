@@ -1,3 +1,5 @@
+*.iml
+.idea
 buildroot/output/
 build/*
 !build/tpi
