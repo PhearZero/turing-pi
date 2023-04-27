@@ -43,5 +43,5 @@ void RTL_Reset(void);
 char* get_nodeType(int num);
 
 int uart_write(int index,char *data,int len);
-
+int get_buff(int index,char* data,int len);
 #endif // !__BMC_H__
