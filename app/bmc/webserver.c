@@ -417,6 +417,7 @@ static int set_uartCmd(Webs *wp) {
     if (num < 0 || num > 3) {
         return -1;
     }
+    printf("UART = %s\n", cmd);
     if (cmd != NULL) {
         ret = uart_write(num, cmd, strlen(cmd));
         printf("uart write cmd = %s ret = %d\n", cmd, ret);
@@ -732,6 +733,21 @@ static cJSON *get_error_json(char *error, char *reason) {
     return pError;
 }
 
+/**
+ * @brief Get UART for Node
+ * @param id
+ * @return
+ */
+static cJSON *get_node_uart_json(int id) {
+    cJSON *pUART = cJSON_CreateObject();
+
+    char buff[BUFF_MAX_SIZE] = {0};
+
+    get_buff(id, buff, BUFF_MAX_SIZE);
+    cJSON_AddStringToObject(pUART, "message", buff);
+
+    return pUART;
+}
 
 /**
  * @brief Get Node by Id in JSON Format
@@ -739,10 +755,15 @@ static cJSON *get_error_json(char *error, char *reason) {
  * @param id The index of the node. Values are 0-3 for Node1-4
  * @return Pointer to the Node JSON
  */
-static cJSON *get_node_json(int id) {
+static cJSON *get_node_json(int id, bool uart) {
     cJSON *pNode = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(pNode, "id", id);
     cJSON_AddStringToObject(pNode, "type", get_nodeType(id));
     cJSON_AddNumberToObject(pNode, "power", get_node_power(id));
+    if (uart) {
+        cJSON_AddItemToObject(pNode, "uart", get_node_uart_json(id));
+    }
     return pNode;
 }
 
@@ -751,13 +772,13 @@ static cJSON *get_node_json(int id) {
  *
  * @return Pointer to the Nodes JSON
  */
-static cJSON *get_nodes_json() {
+static cJSON *get_nodes_json(bool uart) {
     cJSON *pNodes = cJSON_CreateObject();
 
-    cJSON_AddItemToObject(pNodes, "node1", get_node_json(0));
-    cJSON_AddItemToObject(pNodes, "node2", get_node_json(1));
-    cJSON_AddItemToObject(pNodes, "node3", get_node_json(2));
-    cJSON_AddItemToObject(pNodes, "node4", get_node_json(3));
+    cJSON_AddItemToObject(pNodes, "node1", get_node_json(0, uart));
+    cJSON_AddItemToObject(pNodes, "node2", get_node_json(1, uart));
+    cJSON_AddItemToObject(pNodes, "node3", get_node_json(2, uart));
+    cJSON_AddItemToObject(pNodes, "node4", get_node_json(3, uart));
 
     return pNodes;
 }
@@ -819,22 +840,7 @@ static cJSON *get_bmc_usb_json() {
     return pUSB;
 }
 
-/**
- * @brief Get UART for Node
- * @param id
- * @return
- */
-static cJSON *get_node_uart_json(int id){
-    cJSON *pUART = cJSON_CreateObject();
-
-    char buff[BUFF_MAX_SIZE] = {0};
-
-    get_buff(id, buff, BUFF_MAX_SIZE);
-    cJSON_AddStringToObject(pUART, "message", buff);
-
-    return pUART;
-}
-static cJSON *get_bmc_uart_json(){
+static cJSON *get_bmc_uart_json() {
     cJSON *pBMCUART = cJSON_CreateObject();
 
     cJSON_AddItemToObject(pBMCUART, "node1", get_node_uart_json(0));
@@ -844,6 +850,7 @@ static cJSON *get_bmc_uart_json(){
 
     return pBMCUART;
 }
+
 static cJSON *get_bmc_json() {
     cJSON *pBMC = cJSON_CreateObject();
     // TODO: Add Option to filter
@@ -855,7 +862,7 @@ static cJSON *get_bmc_json() {
     cJSON_AddItemToObject(pBMC, "info", get_bmc_info_json());
     cJSON_AddItemToObject(pBMC, "sdcard", pSDCard);
     cJSON_AddItemToObject(pBMC, "usb", get_bmc_usb_json());
-    cJSON_AddItemToObject(pBMC, "nodes", get_nodes_json());
+    cJSON_AddItemToObject(pBMC, "nodes", get_nodes_json(false));
 
     return pBMC;
 }
@@ -875,6 +882,7 @@ static void response(int code, cJSON *pRoot, Webs *wp) {
     websSetStatus(wp, code);
     websWriteHeaders(wp, strlen(szJSON), 0);
     websWriteHeader(wp, "Content-Type", "application/json");
+    // TODO: CORS
     websWriteEndHeaders(wp);
 
     websWrite(wp, szJSON);
@@ -916,20 +924,40 @@ static void on_auth_action(Webs *wp) {
  *
  */
 static void on_v2_action(Webs *wp) {
-    bool isBMCPath = strcasecmp(wp->path, "/api/v2/bmc") == 0 || strcasecmp(wp->path, "/api/v2/bmc/") == 0;
-    bool isBMCInfoPath =
-            strcasecmp(wp->path, "/api/v2/bmc/info") == 0 || strcasecmp(wp->path, "/api/v2/bmc/info/") == 0;
-    bool isBMCSDCardPath =
-            strcasecmp(wp->path, "/api/v2/bmc/sdcard") == 0 || strcasecmp(wp->path, "/api/v2/bmc/sdcard/") == 0;
-    bool isBMCUSBPath = strcasecmp(wp->path, "/api/v2/bmc/usb") == 0 || strcasecmp(wp->path, "/api/v2/bmc/usb/") == 0;
-    bool isBMCUARTPath =
-            strcasecmp(wp->path, "/api/v2/bmc/uart") == 0 || strcasecmp(wp->path, "/api/v2/bmc/uart/") == 0;
+    // Remove trailing slash
+    if (wp->path[strlen(wp->path) - 1] == '/') {
+        wp->path[strlen(wp->path) - 1] = 0;
+    }
+    // BMC PATHS
+    bool isBMCPath = strcasecmp(wp->path, "/api/v2/bmc") == 0;
+    bool isBMCInfoPath = strcasecmp(wp->path, "/api/v2/bmc/info") == 0;
+    bool isBMCSDCardPath = strcasecmp(wp->path, "/api/v2/bmc/sdcard") == 0;
+    bool isBMCUSBPath = strcasecmp(wp->path, "/api/v2/bmc/usb") == 0;
+    bool isBMCUARTPath = strcasecmp(wp->path, "/api/v2/bmc/uart") == 0;
 
-    bool isNodesPath = strcasecmp(wp->path, "/api/v2/nodes") == 0 || strcasecmp(wp->path, "/api/v2/nodes/") == 0;
-    bool isNode1Path = strcasecmp(wp->path, "/api/v2/node/1") == 0 || strcasecmp(wp->path, "/api/v2/node/1/") == 0;
-    bool isNode2Path = strcasecmp(wp->path, "/api/v2/node/2") == 0 || strcasecmp(wp->path, "/api/v2/node/2/") == 0;
-    bool isNode3Path = strcasecmp(wp->path, "/api/v2/node/3") == 0 || strcasecmp(wp->path, "/api/v2/node/3/") == 0;
-    bool isNode4Path = strcasecmp(wp->path, "/api/v2/node/4") == 0 || strcasecmp(wp->path, "/api/v2/node/4/") == 0;
+    // NODE PATHS
+    bool isNodesPath = strcasecmp(wp->path, "/api/v2/nodes") == 0;
+
+    // TODO: Possibly convert to Array
+    bool isNode1Path = strcasecmp(wp->path, "/api/v2/node/1") == 0;
+    bool isNode1UARTPath = strcasecmp(wp->path, "/api/v2/node/1/uart") == 0;
+    bool isNode1TypePath = strcasecmp(wp->path, "/api/v2/node/1/type") == 0;
+    bool isNode1PowerPath = strcasecmp(wp->path, "/api/v2/node/1/power") == 0;
+
+    bool isNode2Path = strcasecmp(wp->path, "/api/v2/node/2") == 0;
+    bool isNode2UARTPath = strcasecmp(wp->path, "/api/v2/node/2/uart") == 0;
+    bool isNode2TypePath = strcasecmp(wp->path, "/api/v2/node/2/type") == 0;
+    bool isNode2PowerPath = strcasecmp(wp->path, "/api/v2/node/2/power") == 0;
+
+    bool isNode3Path = strcasecmp(wp->path, "/api/v2/node/3") == 0;
+    bool isNode3UARTPath = strcasecmp(wp->path, "/api/v2/node/3/uart") == 0;
+    bool isNode3TypePath = strcasecmp(wp->path, "/api/v2/node/3/type") == 0;
+    bool isNode3PowerPath = strcasecmp(wp->path, "/api/v2/node/3/power") == 0;
+
+    bool isNode4Path = strcasecmp(wp->path, "/api/v2/node/4") == 0;
+    bool isNode4UARTPath = strcasecmp(wp->path, "/api/v2/node/4/uart") == 0;
+    bool isNode4TypePath = strcasecmp(wp->path, "/api/v2/node/4/type") == 0;
+    bool isNode4PowerPath = strcasecmp(wp->path, "/api/v2/node/4/power") == 0;
 
     if (strcasecmp(wp->method, "GET") == 0) {
         // --------------------- GET BMC Paths
@@ -952,21 +980,23 @@ static void on_v2_action(Webs *wp) {
             response(HTTP_CODE_OK, pBMCSDCardResponse, wp);
         } else if (isBMCUSBPath) {
             response(HTTP_CODE_OK, get_bmc_usb_json(), wp);
-        }
-        else if (isBMCUARTPath){
+        } else if (isBMCUARTPath) {
             response(HTTP_CODE_OK, get_bmc_uart_json(), wp);
         }
             // ------------------------- GET NODE PATHS
         else if (isNodesPath) {
-            response(HTTP_CODE_OK, get_nodes_json(), wp);
-        } else if (isNode1Path) {
-            response(HTTP_CODE_OK, get_node_json(0), wp);
+            response(HTTP_CODE_OK, get_nodes_json(false), wp);
+        }
+        else if (isNode1Path) {
+            response(HTTP_CODE_OK, get_node_json(0, true), wp);
+        } else if (isNode1UARTPath) {
+            response(HTTP_CODE_OK, get_node_uart_json(0), wp);
         } else if (isNode2Path) {
-            response(HTTP_CODE_OK, get_node_json(1), wp);
+            response(HTTP_CODE_OK, get_node_json(1, true), wp);
         } else if (isNode3Path) {
-            response(HTTP_CODE_OK, get_node_json(2), wp);
+            response(HTTP_CODE_OK, get_node_json(2, true), wp);
         } else if (isNode4Path) {
-            response(HTTP_CODE_OK, get_node_json(3), wp);
+            response(HTTP_CODE_OK, get_node_json(3, true), wp);
         } else {
             on_request_error(HTTP_CODE_NOT_FOUND, "InvalidRoute", "Route is not found", wp);
         }
@@ -1006,7 +1036,7 @@ int webstart() {
     start_goahead(
             "/mnt",
             "/mnt/var/www",
-            "https://*:443",
+            "http://*:80",
             "/mnt/route.txt",
             "/mnt/auth.txt",
             g_func_reg,
