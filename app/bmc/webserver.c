@@ -713,6 +713,32 @@ static void bmcdemo(Webs *wp) {
 
 // ----------------------------------V2---------------------------------------------
 
+
+// ----------------------------------JSON-------------------------------------------
+static bool isJSONError(cJSON *pRoot) {
+    cJSON *ok = cJSON_GetObjectItem(pRoot, "ok");
+    bool okBool = cJSON_IsBool(ok);
+    if ((void *) okBool == NULL) {
+        return false;
+    }
+    return okBool;
+}
+
+static cJSON *get_error_json(char *error, char *reason) {
+    cJSON *pError = cJSON_CreateObject();
+    cJSON_AddBoolToObject(pError, "ok", false);
+    cJSON_AddStringToObject(pError, "error", error);
+    cJSON_AddStringToObject(pError, "reason", reason);
+    return pError;
+}
+
+
+/**
+ * @brief Get Node by Id in JSON Format
+ *
+ * @param id The index of the node. Values are 0-3 for Node1-4
+ * @return Pointer to the Node JSON
+ */
 static cJSON *get_node_json(int id) {
     cJSON *pNode = cJSON_CreateObject();
     cJSON_AddStringToObject(pNode, "type", get_nodeType(id));
@@ -720,6 +746,11 @@ static cJSON *get_node_json(int id) {
     return pNode;
 }
 
+/**
+ * @brief Get Nodes in JSON Format
+ *
+ * @return Pointer to the Nodes JSON
+ */
 static cJSON *get_nodes_json() {
     cJSON *pNodes = cJSON_CreateObject();
 
@@ -731,59 +762,149 @@ static cJSON *get_nodes_json() {
     return pNodes;
 }
 
-static int on_request_error(int code, char *error, char *reason, Webs *wp) {
-    cJSON *pRoot = cJSON_CreateObject();
-    cJSON_AddBoolToObject(pRoot, "ok", false);
-    cJSON_AddStringToObject(pRoot, "error", error);
-    cJSON_AddStringToObject(pRoot, "reason", reason);
+static cJSON *get_bmc_info_json() {
+    cJSON *pBMCInfo = cJSON_CreateObject();
+    char mac[24];
+    char ip[24];
+    comm_getMacAddr("eth0", mac, sizeof(mac));
+    comm_getIpAddr("eth0", ip, sizeof(ip));
 
+    cJSON_AddStringToObject(pBMCInfo, "mac", mac);
+    cJSON_AddStringToObject(pBMCInfo, "ip", ip);
+    cJSON_AddStringToObject(pBMCInfo, "version", BMCVERSION);
+    cJSON_AddStringToObject(pBMCInfo, "released", BUILDTIME);
+
+    return pBMCInfo;
+}
+
+static cJSON *get_bmc_sdcard_json() {
+    unsigned long long total;
+    unsigned long long free;
+    unsigned long long use;
+
+    struct statfs hfs = {0};
+    unsigned long long block_size = 0;
+
+    if (check_sdcard_mount_status()) {
+        if (statfs(SD_PATH, &hfs)) {
+            printf("get sd error\n");
+
+            return get_error_json("SDError", "Could not find a mounted sdcard");
+
+        }
+    }
+
+    block_size = hfs.f_bsize;
+    total = (hfs.f_blocks * block_size) >> 20;
+    free = (hfs.f_bavail * block_size) >> 20;
+    use = total - free;
+
+    cJSON *pBMCSdCard = cJSON_CreateObject();
+    cJSON_AddNumberToObject(pBMCSdCard, "total", total);
+    cJSON_AddNumberToObject(pBMCSdCard, "free", free);
+    cJSON_AddNumberToObject(pBMCSdCard, "use", use);
+    cJSON_AddNumberToObject(pBMCSdCard, "use", use);
+
+    return pBMCSdCard;
+}
+
+static cJSON *get_bmc_usb_json() {
+    cJSON *pUSB = cJSON_CreateObject();
+
+    env_usb_t *usb = &(env_get_ctx()->usb);
+
+    cJSON_AddNumberToObject(pUSB, "mode", usb->mode);
+    cJSON_AddNumberToObject(pUSB, "node", usb->node);
+
+    return pUSB;
+}
+
+/**
+ * @brief Get UART for Node
+ * @param id
+ * @return
+ */
+static cJSON *get_node_uart_json(int id){
+    cJSON *pUART = cJSON_CreateObject();
+
+    char buff[BUFF_MAX_SIZE] = {0};
+
+    get_buff(id, buff, BUFF_MAX_SIZE);
+    cJSON_AddStringToObject(pUART, "message", buff);
+
+    return pUART;
+}
+static cJSON *get_bmc_uart_json(){
+    cJSON *pBMCUART = cJSON_CreateObject();
+
+    cJSON_AddItemToObject(pBMCUART, "node1", get_node_uart_json(0));
+    cJSON_AddItemToObject(pBMCUART, "node2", get_node_uart_json(1));
+    cJSON_AddItemToObject(pBMCUART, "node3", get_node_uart_json(2));
+    cJSON_AddItemToObject(pBMCUART, "node4", get_node_uart_json(3));
+
+    return pBMCUART;
+}
+static cJSON *get_bmc_json() {
+    cJSON *pBMC = cJSON_CreateObject();
+    // TODO: Add Option to filter
+    // sdcard
+    cJSON *pSDCard = get_bmc_sdcard_json();
+    if (isJSONError(pSDCard)) {
+        return pSDCard;
+    }
+    cJSON_AddItemToObject(pBMC, "info", get_bmc_info_json());
+    cJSON_AddItemToObject(pBMC, "sdcard", pSDCard);
+    cJSON_AddItemToObject(pBMC, "usb", get_bmc_usb_json());
+    cJSON_AddItemToObject(pBMC, "nodes", get_nodes_json());
+
+    return pBMC;
+}
+//--------------------------------------Responses-------------------------------------
+/**
+ * @brief Generic Response
+ *
+ * Response handles the writing of headers and content sanely.
+ *
+ * @param code HTTP Response Code
+ * @param pRoot JSON Root
+ * @param wp Webs Instance
+ */
+static void response(int code, cJSON *pRoot, Webs *wp) {
     char *szJSON = cJSON_Print(pRoot);
 
     websSetStatus(wp, code);
     websWriteHeaders(wp, strlen(szJSON), 0);
     websWriteHeader(wp, "Content-Type", "application/json");
     websWriteEndHeaders(wp);
+
     websWrite(wp, szJSON);
-
-
     websFlush(wp, 0);
     websDone(wp);
 
     cJSON_Delete(pRoot);
-    return 0;
+}
+
+//---------------------------------- Handlers-----------------------------------------------------
+/**
+ *
+ * @param code
+ * @param error
+ * @param reason
+ * @param wp
+ * @return
+ */
+static void on_request_error(int code, char *error, char *reason, Webs *wp) {
+    response(code, get_error_json(error, reason), wp);
 }
 
 /**
- * @brief GET Response
- *
- * Respond with 200 and the JSON
- *
- * @param pRoot JSON Root
- * @param wp Webs Instance
+ * @brief Not implemented
+ * @param wp
  */
-static void get_response(cJSON *pRoot, Webs *wp) {
-    if (pRoot == NULL) {
-        on_request_error(500, "ServerError", "Something went wrong", wp);
-    }
-
-    char *szJSON = cJSON_Print(pRoot);
-
-    websSetStatus(wp, 200);
-    websWriteHeaders(wp, strlen(szJSON), 0);
-    websWriteHeader(wp, "Content-Type", "application/json");
-    websWriteEndHeaders(wp);
-
-    websWrite(wp, szJSON);
-    websFlush(wp, 0);
-    websDone(wp);
-
-    cJSON_Delete(pRoot);
+static void on_auth_action(Webs *wp) {
+    on_request_error(HTTP_CODE_NOT_IMPLEMENTED, "NotImplemented", "Because I'm lazy", wp);
 }
 
-static void on_auth_action(Webs *wp){
-    printf("Other Action");
-    on_request_error(501, "NotImplemented", "Because I'm lazy", wp);
-}
 /**
  * @brief On Node Action Request
  *
@@ -796,6 +917,13 @@ static void on_auth_action(Webs *wp){
  */
 static void on_v2_action(Webs *wp) {
     bool isBMCPath = strcasecmp(wp->path, "/api/v2/bmc") == 0 || strcasecmp(wp->path, "/api/v2/bmc/") == 0;
+    bool isBMCInfoPath =
+            strcasecmp(wp->path, "/api/v2/bmc/info") == 0 || strcasecmp(wp->path, "/api/v2/bmc/info/") == 0;
+    bool isBMCSDCardPath =
+            strcasecmp(wp->path, "/api/v2/bmc/sdcard") == 0 || strcasecmp(wp->path, "/api/v2/bmc/sdcard/") == 0;
+    bool isBMCUSBPath = strcasecmp(wp->path, "/api/v2/bmc/usb") == 0 || strcasecmp(wp->path, "/api/v2/bmc/usb/") == 0;
+    bool isBMCUARTPath =
+            strcasecmp(wp->path, "/api/v2/bmc/uart") == 0 || strcasecmp(wp->path, "/api/v2/bmc/uart/") == 0;
 
     bool isNodesPath = strcasecmp(wp->path, "/api/v2/nodes") == 0 || strcasecmp(wp->path, "/api/v2/nodes/") == 0;
     bool isNode1Path = strcasecmp(wp->path, "/api/v2/node/1") == 0 || strcasecmp(wp->path, "/api/v2/node/1/") == 0;
@@ -804,44 +932,67 @@ static void on_v2_action(Webs *wp) {
     bool isNode4Path = strcasecmp(wp->path, "/api/v2/node/4") == 0 || strcasecmp(wp->path, "/api/v2/node/4/") == 0;
 
     if (strcasecmp(wp->method, "GET") == 0) {
-        if(isBMCPath){
-            on_request_error(501, "NotImplemented","Still a work in progress!" , wp);
+        // --------------------- GET BMC Paths
+        if (isBMCPath) {
+            cJSON *pBMCResponse = get_bmc_json();
+            bool isError = isJSONError(pBMCResponse);
+            if (isError) {
+                response(HTTP_CODE_INTERNAL_SERVER_ERROR, pBMCResponse, wp);
+            }
+            response(HTTP_CODE_OK, pBMCResponse, wp);
+        } else if (isBMCInfoPath) {
+            response(HTTP_CODE_OK, get_bmc_info_json(), wp);
+
+        } else if (isBMCSDCardPath) {
+            cJSON *pBMCSDCardResponse = get_bmc_sdcard_json();
+            bool isError = isJSONError(pBMCSDCardResponse);
+            if (isError) {
+                response(HTTP_CODE_INTERNAL_SERVER_ERROR, pBMCSDCardResponse, wp);
+            }
+            response(HTTP_CODE_OK, pBMCSDCardResponse, wp);
+        } else if (isBMCUSBPath) {
+            response(HTTP_CODE_OK, get_bmc_usb_json(), wp);
         }
+        else if (isBMCUARTPath){
+            response(HTTP_CODE_OK, get_bmc_uart_json(), wp);
+        }
+            // ------------------------- GET NODE PATHS
         else if (isNodesPath) {
-            get_response(get_nodes_json(), wp);
+            response(HTTP_CODE_OK, get_nodes_json(), wp);
         } else if (isNode1Path) {
-            get_response(get_node_json(0), wp);
-        } else if (isNode2Path){
-            get_response(get_node_json(1), wp);
-        } else if (isNode3Path){
-            get_response(get_node_json(2), wp);
-        } else if (isNode4Path){
-            get_response(get_node_json(3), wp);
+            response(HTTP_CODE_OK, get_node_json(0), wp);
+        } else if (isNode2Path) {
+            response(HTTP_CODE_OK, get_node_json(1), wp);
+        } else if (isNode3Path) {
+            response(HTTP_CODE_OK, get_node_json(2), wp);
+        } else if (isNode4Path) {
+            response(HTTP_CODE_OK, get_node_json(3), wp);
+        } else {
+            on_request_error(HTTP_CODE_NOT_FOUND, "InvalidRoute", "Route is not found", wp);
         }
 
-        else {
-            on_request_error(404, "InvalidRoute", "Route is not found", wp);
-        }
+        //-------------------------------- Not implemented
     } else if (strcasecmp(wp->method, "PUT") == 0) {
-        on_request_error(501, "NotImplemented","Still a work in progress!" , wp);
+        on_request_error(HTTP_CODE_NOT_IMPLEMENTED, "NotImplemented", "Working on PUT", wp);
     } else if (strcasecmp(wp->method, "POST") == 0) {
-        on_request_error(501, "NotImplemented","Still a work in progress!" , wp);
+        on_request_error(HTTP_CODE_NOT_IMPLEMENTED, "NotImplemented", "Working on POST", wp);
     } else if (strcasecmp(wp->method, "PATCH") == 0) {
-        on_request_error(501, "NotImplemented","Still a work in progress!" , wp);
+        on_request_error(HTTP_CODE_NOT_IMPLEMENTED, "NotImplemented", "Working on PATCH", wp);
     } else {
-        on_request_error(501, "NotImplemented", "Web server does not support method", wp);
+        on_request_error(HTTP_CODE_BAD_METHOD, "NotImplemented", "Web server does not support method", wp);
     }
 
 }
 
+//----------------------------------------------GOAHEAD----------------------------------------------------------
 /**
  * Mount Actions
  */
 static go_asp_func_t g_func_reg[] =
         {
-                {2, "bmc", NULL, bmcdemo},
-                {2, "v2",  NULL, on_v2_action},
-                {2, "auth",  NULL, on_auth_action}
+                {2, "bmc",  NULL, bmcdemo},
+                {2, "v2",   NULL, on_v2_action},
+                {2, "auth", NULL, on_auth_action}
         };
 
 /**
