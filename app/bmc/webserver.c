@@ -912,7 +912,6 @@ static void on_request_error(int code, char *error, char *reason, Webs *wp) {
 static void on_auth_action(Webs *wp) {
     on_request_error(HTTP_CODE_NOT_IMPLEMENTED, "NotImplemented", "Because I'm lazy", wp);
 }
-
 /**
  * @brief On Node Action Request
  *
@@ -928,6 +927,7 @@ static void on_v2_action(Webs *wp) {
     if (wp->path[strlen(wp->path) - 1] == '/') {
         wp->path[strlen(wp->path) - 1] = 0;
     }
+    // TODO: Hashtable of char to response fn
     // BMC PATHS
     bool isBMCPath = strcasecmp(wp->path, "/api/v2/bmc") == 0;
     bool isBMCInfoPath = strcasecmp(wp->path, "/api/v2/bmc/info") == 0;
@@ -938,7 +938,6 @@ static void on_v2_action(Webs *wp) {
     // NODE PATHS
     bool isNodesPath = strcasecmp(wp->path, "/api/v2/nodes") == 0;
 
-    // TODO: Possibly convert to Array
     bool isNode1Path = strcasecmp(wp->path, "/api/v2/node/1") == 0;
     bool isNode1UARTPath = strcasecmp(wp->path, "/api/v2/node/1/uart") == 0;
     bool isNode1TypePath = strcasecmp(wp->path, "/api/v2/node/1/type") == 0;
@@ -959,43 +958,64 @@ static void on_v2_action(Webs *wp) {
     bool isNode4TypePath = strcasecmp(wp->path, "/api/v2/node/4/type") == 0;
     bool isNode4PowerPath = strcasecmp(wp->path, "/api/v2/node/4/power") == 0;
 
+    // METHOD GET
     if (strcasecmp(wp->method, "GET") == 0) {
-        // --------------------- GET BMC Paths
+        // GET /api/v2/bmc
         if (isBMCPath) {
             cJSON *pBMCResponse = get_bmc_json();
+            // Check for any errors, (Only SD Card has error handling)
             bool isError = isJSONError(pBMCResponse);
             if (isError) {
                 response(HTTP_CODE_INTERNAL_SERVER_ERROR, pBMCResponse, wp);
             }
             response(HTTP_CODE_OK, pBMCResponse, wp);
-        } else if (isBMCInfoPath) {
+        }
+            // GET /api/v2/bmc/info
+        else if (isBMCInfoPath) {
             response(HTTP_CODE_OK, get_bmc_info_json(), wp);
 
-        } else if (isBMCSDCardPath) {
+        }
+            // GET /api/v2/bmc/sdcard
+        else if (isBMCSDCardPath) {
             cJSON *pBMCSDCardResponse = get_bmc_sdcard_json();
             bool isError = isJSONError(pBMCSDCardResponse);
             if (isError) {
                 response(HTTP_CODE_INTERNAL_SERVER_ERROR, pBMCSDCardResponse, wp);
             }
             response(HTTP_CODE_OK, pBMCSDCardResponse, wp);
-        } else if (isBMCUSBPath) {
+        }
+            // GET /api/v2/bmc/usb
+        else if (isBMCUSBPath) {
             response(HTTP_CODE_OK, get_bmc_usb_json(), wp);
-        } else if (isBMCUARTPath) {
+        }
+            // GET /api/v2/bmc/uart * This may be better under /api/v2/node/1/uart
+        else if (isBMCUARTPath) {
             response(HTTP_CODE_OK, get_bmc_uart_json(), wp);
         }
             // ------------------------- GET NODE PATHS
+
+            // GET /api/v2/nodes
         else if (isNodesPath) {
             response(HTTP_CODE_OK, get_nodes_json(false), wp);
         }
+            // GET /api/v2/node/1
         else if (isNode1Path) {
             response(HTTP_CODE_OK, get_node_json(0, true), wp);
-        } else if (isNode1UARTPath) {
+        }
+            // GET /api/v2/node/1/uart
+        else if (isNode1UARTPath) {
             response(HTTP_CODE_OK, get_node_uart_json(0), wp);
-        } else if (isNode2Path) {
+        }
+            // GET /api/v2/node/2
+        else if (isNode2Path) {
             response(HTTP_CODE_OK, get_node_json(1, true), wp);
-        } else if (isNode3Path) {
+        }
+            // GET /api/v2/node/3
+        else if (isNode3Path) {
             response(HTTP_CODE_OK, get_node_json(2, true), wp);
-        } else if (isNode4Path) {
+        }
+            // GET /api/v2/node/4
+        else if (isNode4Path) {
             response(HTTP_CODE_OK, get_node_json(3, true), wp);
         } else {
             on_request_error(HTTP_CODE_NOT_FOUND, "InvalidRoute", "Route is not found", wp);

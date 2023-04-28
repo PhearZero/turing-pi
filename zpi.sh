@@ -1,6 +1,7 @@
 #!/bin/sh
 
 version=$(cat VERSION)
+ip=$(cat BMC_IP)
 
 BANNER=$(
   cat <<-EndOfMessage
@@ -59,6 +60,9 @@ case $1 in
   fi
   ./scripts/build.sh
   ;;
+"bmc")
+  make -C buildroot bmc-rebuild
+  ;;
 "mkfw")
   if [ -n "$2" ]; then
     echo "$2" >VERSION
@@ -68,6 +72,14 @@ case $1 in
   ;;
 "menu")
   make -C buildroot menuconfig
+  ;;
+"scp")
+  ssh root@"$ip" killall bmc
+  scp ./buildroot/output/target/bin/bmc root@"$ip":/bin/bmc
+  ssh root@"$ip" "bmc > /mnt/sdcard/bmc.log"
+  ;;
+"docs")
+  make -C buildroot manual-text
   ;;
 "help")
    printf "%s\n" "$USAGE"
